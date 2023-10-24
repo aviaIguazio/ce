@@ -3,7 +3,6 @@ name: demos_notebook_tests
 on:
   workflow_dispatch:
   schedule:
-    # * is a special character in YAML so you have to quote this string
     # Run every 8 hours (cron hours should divide 24 equally, otherwise there will be an overlap at the end of the day)
     - cron:  '0 */4 * * *'
 
@@ -16,7 +15,7 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v2
+      uses: actions/checkout@v3
     - name: Extract private key
       run: echo "${{ secrets.TEST_SYSTEM_MLRUN_PEM }}" > mlrun.pem
     - name: Set permissions on key
