@@ -1,6 +1,5 @@
 # We use global values scope to multiplex the docker-registry details to both mlrun and nuclio
 global:
-
   # External host/ip to reach the k8s node. This might take various values if k8s is run in a VM or a cloud env
   externalHostAddress: localhost
   registry:
@@ -11,19 +10,18 @@ global:
       nodePort: 30050
 
 nuclio:
-
   # coupled with mlrun.nuclio.dashboardName template in mlrun chart
   fullnameOverride: nuclio
   controller:
     enabled: true
     image:
-      tag: 1.11.15-amd64
+      tag: 1.11.23-amd64
   dashboard:
     enabled: true
 
     # nodePort - taken from global.nuclio.dashboard.nodePort for re-usability
     image:
-      tag: 1.11.15-amd64
+      tag: 1.11.23-amd64
 
     # k8s has deprecated docker support since v1.20
     containerBuilderKind: kaniko
@@ -57,6 +55,7 @@ nuclio:
 mlrun:
 
   # set the type of filesystem to use: filesystem, s3
+  enabled: true
   storage: filesystem
   secrets:
     s3:
@@ -78,7 +77,7 @@ mlrun:
   api:
     fullnameOverride: mlrun-api
     image:
-      tag: 1.3.0
+      tag: 1.4.0
     service:
       type: NodePort
       nodePort: 30070
@@ -113,15 +112,15 @@ mlrun:
       type: NodePort
       nodePort: 30060
     image:
-      tag: 1.3.0
+      tag: 1.4.0
   db:
     name: db
     fullnameOverride: mlrun-db
-    securityContext: 
+    securityContext:
       runAsUser: 999
     podSecurityContext:
       runAsUser: 999
-      fsGroup: 999    
+      fsGroup: 999
     volumes:
       storageOverride:
         persistentVolumeClaim:
@@ -140,7 +139,10 @@ mlrun:
     dirPath: "/mlrun/db"
     dsn: mysql+pymysql://root@mlrun-db:3306/mlrun
     oldDsn: sqlite:////mlrun/db/mlrun.db?check_same_thread=false
-
+  modelMonitoring:
+    # If no dsn has been provided, will initiate monitoring database under mlrun-db service:
+    # mysql+pymysql://root@mlrun-db:3306/mlrun_model_monitoring
+    dsn:
   ce:
     mode: full
 
@@ -169,13 +171,12 @@ jupyterNotebook:
     #      - chart-example.local
   image:
     repository: quay.io/mlrun/jupyter
-    tag: 1.3.0
+    tag: 1.4.0
     pullPolicy: IfNotPresent
 
   # use this to override mlrunUIURL, by default it will be auto-resolved to externalHostAddress and
   # mlrun UI's node port
   mlrunUIURL:
-
   extraEnv:
     - name: MLRUN_ARTIFACT_PATH
       value: s3://mlrun/projects/{{run.project}}/artifacts
@@ -185,15 +186,11 @@ jupyterNotebook:
       value: ""
     - name: MLRUN_FEATURE_STORE__DEFAULT_TARGETS
       value: "parquet"
-    - name: S3_ENDPOINT_URL
-      value: http://minio.mlrun.svc.cluster.local:9000
-    - name: AWS_SECRET_ACCESS_KEY
-      value: minio123
-    - name: AWS_ACCESS_KEY_ID
-      value: minio
-    - name: MLRUN_CE
-      value: "true"
 
+  extraEnvKeyValue: {}
+  envFrom:
+    - configMapRef:
+        name: jupyter-common-env
   persistence:
     enabled: true
     existingClaim:
@@ -260,6 +257,12 @@ spark-operator:
 pipelines:
   enabled: true
   name: pipelines
+  service:
+    nodePort: 30100
+  crd:
+    enabled: true
+  priority_class:
+    enabled: true
   persistence:
     enabled: true
     existingClaim:
@@ -280,7 +283,6 @@ pipelines:
     enabled: true
     accessKey: "minio"
     secretKey: "minio123"
-    endpoint: "minio.mlrun.svc.cluster.local"
     endpointPort: "9000"
     bucket: "mlrun"
   images:
@@ -331,26 +333,73 @@ kube-prometheus-stack:
   alertmanager:
     enabled: false
   grafana:
+    adminUser: admin
+    adminPassword: admin
+    additionalDataSources:
+    - name: iguazio
+      type: mysql
+      url: mlrun-db:3306
+      user: root
+      password:
+      database: mlrun_model_monitoring
+      editable: true
+      maxOpenConns: 100
+      maxIdleConns: 100
+      maxIdleConnsAuto: true
     persistence:
       type: pvc
       enabled: true
-      size: 10Gi  
+      size: 10Gi
     grafana.ini:
       auth.anonymous:
         enabled: true
         org_role: Editor
-      security:
-        disable_initial_admin_creation: true
     fullnameOverride: grafana
     enabled: true
     service:
       type: NodePort
-      nodePort: 30110
+      nodePort: 30010
   prometheus:
     enabled: true
     service:
       type: NodePort
-      nodePort: 30120    
+      nodePort: 30020
+    prometheusSpec:
+      storageSpec:
+        volumeClaimTemplate:
+          spec:
+            storageClassName: local-path
+            accessModes: ["ReadWriteOnce"]
+            resources:
+              requests:
+                storage: 5Gi
+      additionalScrapeConfigs:
+        - job_name: model-monitoring-job
+          metrics_path: /model-monitoring-metrics
+          scheme: http
+          tls_config:
+            insecure_skip_verify: true
+          scrape_interval: 30s
+          scrape_timeout: 10s
+          relabel_configs:
+            - source_labels: [ __meta_kubernetes_namespace ]
+              separator: ;
+              regex: (.*)
+              target_label: namespace
+              replacement: $1
+              action: replace
+          kubernetes_sd_configs:
+            - role: pod
+              kubeconfig_file: ""
+              follow_redirects: true
+              enable_http2: true
+              namespaces:
+                own_namespace: false
+                names:
+                  - mlrun
+              selectors:
+                - role: "pod"
+                  label: "type=model-monitoring-stream"
   kube-state-metrics:
     fullnameOverride: state-metrics
   prometheus-node-exporter:

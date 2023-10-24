@@ -3,6 +3,7 @@
 {{/*
 Create fully qualified names.
 */}}
+
 {{- define "mlrun-ce.name" -}}
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
@@ -118,9 +119,11 @@ Create chart name and version as used by the chart label.
 Minio Service URL
 */}}
 {{- define "mlrun-ce.minio.service.url" -}}
-http://minio.mlrun.svc.cluster.local:{{ .Values.minio.service.port }}
+http://minio.{{.Release.Namespace}}.svc.cluster.local:{{ .Values.minio.service.port }}
 {{- end -}}
-
+{{- define "mlrun-ce.minio-pipeline.service.url" -}}
+minio.{{.Release.Namespace}}.svc.cluster.local
+{{- end -}}
 
 {{/*
 Mlrun DB labels
@@ -208,5 +211,18 @@ Pipelines labels
 {{- define "mlrun-ce.pipelines.labels" -}}
 {{ include "mlrun-ce.common.labels" . }}
 {{ include "mlrun-ce.pipelines.selectorLabels" . }}
+{{- end -}}
+
+{{/*
+Model monitoring DSN
+*/}}
+{{- define "mlrun-ce.mlrun.modelMonitoring.DSN" -}}
+{{- if .Values.mlrun.modelMonitoring.dsn -}}
+{{ .Values.mlrun.modelMonitoring.dsn }}
+{{- else -}}
+{{- if eq "mysql" .Values.mlrun.httpDB.dbType -}}
+{{ .Values.mlrun.httpDB.dsn }}_model_monitoring
+{{- end -}}
+{{- end -}}
 {{- end -}}
 
